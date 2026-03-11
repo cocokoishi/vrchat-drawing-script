@@ -1,0 +1,26 @@
+[package]
+name = "vrchat_drawing_tool"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+eframe = "0.29"
+egui = "0.29"
+image = "0.24"
+imageproc = "0.23"
+rfd = "0.15"
+global-hotkey = "0.5"
+
+[dependencies.windows-sys]
+version = "0.59"
+features = [
+    "Win32_Foundation",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_WindowsAndMessaging",
+]
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true
+codegen-units = 1
