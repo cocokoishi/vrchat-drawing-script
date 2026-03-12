@@ -241,7 +241,7 @@ impl Drawer {
         let center_x = (min_x + max_x) / 2.0;
         let center_y = (min_y + max_y) / 2.0;
 
-        let scale = cfg.pixel_to_screen_scale;
+        let scale = cfg.sensitivity;
         let stretch = cfg.vertical_stretch;
 
         let offset_x = start_x as f64 - center_x * scale;
