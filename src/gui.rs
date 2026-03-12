@@ -142,7 +142,7 @@ impl eframe::App for VRChatDrawingApp {
                 
                 ui.horizontal(|ui| {
                     ui.label("Sensitivity:");
-                    ui.add(egui::Slider::new(&mut self.config.drawing.sensitivity, 0.1..=3.0));
+                    ui.add(egui::Slider::new(&mut self.config.drawing.sensitivity, 0.1..=18.0));
                 });
                 
                 let mut delay_ms = (self.config.drawing.draw_speed * 1000.0) as u32;
