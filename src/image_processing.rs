@@ -257,14 +257,13 @@ fn extract_strokes(data: &[u8], w: usize, h: usize, cfg: &ContourConfig) -> Vec<
         }
     }
 
-    // Simplify, close loops, then interpolate (matching original Python approach)
-    let mut simplified = Vec::with_capacity(raw_strokes.len());
+    // === Phase 1: RDP simplify + loop closure ===
+    let mut cleaned = Vec::with_capacity(raw_strokes.len());
     for stroke in raw_strokes {
         let mut clean = rdp_simplify(&stroke, cfg.epsilon_ratio);
         if clean.len() < 2 { continue; }
         
-        // NEW: Loop Closure Heuristic
-        // If start and end are within 3 pixels, force a closed loop for circles.
+        // Loop Closure Heuristic: if start and end are within 3 pixels, close the loop
         let start = clean.first().unwrap();
         let end = clean.last().unwrap();
         let dx = end.x - start.x;
@@ -273,9 +272,20 @@ fn extract_strokes(data: &[u8], w: usize, h: usize, cfg: &ContourConfig) -> Vec<
              clean.push(start.clone());
         }
 
-        // Interpolate: add points between distant vertices. 
-        // 3.0px provides much smoother "continuous" lines in VRChat than 10px.
-        let interp = interpolate_stroke(&clean, 3.0);
+        cleaned.push(DrawingStroke { points: clean });
+    }
+
+    // === Phase 2: Merge collinear strokes fragmented at skeleton junctions ===
+    // merge_dist=3.0px: endpoints within 3 pixels are merge candidates
+    // cos_angle_thresh=0.7 (~45°): tangent directions must be compatible to merge
+    let merged = merge_collinear_strokes(cleaned, 3.0, 0.7);
+
+    // === Phase 3: Interpolate with adaptive distance ===
+    let mut simplified = Vec::with_capacity(merged.len());
+    for stroke in merged {
+        // Short strokes get finer 3px interpolation; longer ones use 5px for efficiency
+        let max_dist = if stroke.points.len() > 20 { 5.0 } else { 3.0 };
+        let interp = interpolate_stroke(&stroke.points, max_dist);
         if interp.len() > 1 {
             simplified.push(DrawingStroke { points: interp });
         }
@@ -326,22 +336,68 @@ fn trace_path(
         let next_pos = if neighbors.len() == 1 {
             neighbors[0]
         } else {
-            let mut best_idx = 0;
-            let mut best_dot = -2.0;
-            for (i, &(nx, ny)) in neighbors.iter().enumerate() {
-                let dx = (nx - x) as f64;
-                let dy = (ny - y) as f64;
-                let mag = dx.hypot(dy);
-                let dot = if mag > 0.0 {
-                    (dx / mag) * last_vec.0 + (dy / mag) * last_vec.1
-                } else { 0.0 };
-                
-                if dot > best_dot {
-                    best_dot = dot;
-                    best_idx = i;
+            let has_direction = last_vec.0.abs() + last_vec.1.abs() > 0.01;
+            
+            if has_direction {
+                // Follow the straightest path based on accumulated direction
+                let mut best_idx = 0;
+                let mut best_dot = -2.0;
+                for (i, &(nx, ny)) in neighbors.iter().enumerate() {
+                    let dx = (nx - x) as f64;
+                    let dy = (ny - y) as f64;
+                    let mag = dx.hypot(dy);
+                    let dot = if mag > 0.0 {
+                        (dx / mag) * last_vec.0 + (dy / mag) * last_vec.1
+                    } else { 0.0 };
+                    if dot > best_dot {
+                        best_dot = dot;
+                        best_idx = i;
+                    }
                 }
+                neighbors[best_idx]
+            } else {
+                // First step (no direction yet): use look-ahead heuristic.
+                // For each candidate neighbor, trace a short run (5 steps) to see
+                // which one leads to the longest continuous skeleton path.
+                // Prefer cardinal directions (up/down/left/right) as tiebreaker,
+                // since straight lines in images tend to be axis-aligned.
+                let mut best_idx = 0;
+                let mut best_score: i32 = -1;
+                for (i, &(nx, ny)) in neighbors.iter().enumerate() {
+                    let mut run = 1;
+                    let mut cx = nx;
+                    let mut cy = ny;
+                    let mut px = x;
+                    let mut py = y;
+                    for _ in 0..5 {
+                        let mut found = false;
+                        for &(ddx, ddy) in &DIRS {
+                            let nnx = cx + ddx;
+                            let nny = cy + ddy;
+                            if nnx >= 0 && nnx < wi && nny >= 0 && nny < hi {
+                                let nidx = (nny as usize) * w + (nnx as usize);
+                                if data[nidx] > 0 && !visited[nidx]
+                                   && !(nnx == px && nny == py) {
+                                    px = cx; py = cy;
+                                    cx = nnx; cy = nny;
+                                    run += 1;
+                                    found = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if !found { break; }
+                    }
+                    // Cardinal directions get a small bonus as tiebreaker
+                    let is_cardinal = ((nx - x).abs() + (ny - y).abs()) == 1;
+                    let score = run * 2 + if is_cardinal { 1 } else { 0 };
+                    if score > best_score {
+                        best_score = score;
+                        best_idx = i;
+                    }
+                }
+                neighbors[best_idx]
             }
-            neighbors[best_idx]
         };
 
         // Update direction vector for next step
@@ -496,4 +552,165 @@ fn reorder_strokes(strokes: Vec<DrawingStroke>) -> Vec<DrawingStroke> {
         ordered.push(next);
     }
     ordered
+}
+
+// =============================================================================
+// Stroke Merging Algorithm
+// =============================================================================
+// When the skeleton passes through a junction (intersection of two lines),
+// the greedy trace_path can only follow one branch, causing the other to start
+// as a separate stroke. This produces "fragmented" straight lines.
+//
+// This algorithm reconnects those fragments by checking if two stroke endpoints
+// are close together AND their tangent directions are compatible (pointing in
+// roughly the same direction). It iteratively merges the best candidate pair
+// until no more merges are possible.
+// =============================================================================
+
+/// Compute the tangent (forward direction) at a stroke endpoint.
+/// Uses up to 8 points for robust estimation against pixel-level noise.
+///
+/// Returns a unit vector in the stroke's forward direction:
+/// - `at_start=true`:  direction from start toward interior (stroke heading)
+/// - `at_start=false`: direction from interior toward end (stroke heading)
+fn endpoint_tangent(points: &[DrawingPoint], at_start: bool) -> Option<(f64, f64)> {
+    let n = points.len();
+    if n < 2 { return None; }
+    // Use up to 8 points for a more stable direction estimate
+    let span = n.min(8);
+    let (dx, dy) = if at_start {
+        (points[span - 1].x - points[0].x, points[span - 1].y - points[0].y)
+    } else {
+        (points[n - 1].x - points[n - span].x, points[n - 1].y - points[n - span].y)
+    };
+    let mag = (dx * dx + dy * dy).sqrt();
+    if mag < 1e-10 { return None; }
+    Some((dx / mag, dy / mag))
+}
+
+/// Merge strokes whose endpoints are close and whose tangent directions are compatible.
+///
+/// Algorithm:
+/// 1. For each pair of strokes, evaluate all 4 endpoint combinations:
+///    (end→start, end→end, start→start, start→end) with potential reversal.
+/// 2. Score by endpoint distance; require tangent dot product ≥ `cos_angle_thresh`.
+/// 3. Greedily merge the best-scoring pair.
+/// 4. Repeat until no more merges are possible.
+///
+/// Parameters:
+/// - `merge_dist`: maximum pixel distance between endpoints to consider merging
+/// - `cos_angle_thresh`: minimum dot product of tangent vectors (e.g., 0.7 ≈ 45°)
+fn merge_collinear_strokes(
+    mut strokes: Vec<DrawingStroke>,
+    merge_dist: f64,
+    cos_angle_thresh: f64,
+) -> Vec<DrawingStroke> {
+    let merge_dist_sq = merge_dist * merge_dist;
+
+    loop {
+        let n = strokes.len();
+        if n < 2 { break; }
+
+        // Search for the best merge candidate across all stroke pairs
+        let mut best: Option<(f64, usize, usize, bool, bool)> = None;
+        // Tuple: (distance, index_i, index_j, reverse_i, reverse_j)
+
+        for i in 0..n {
+            let si = &strokes[i];
+            if si.points.len() < 2 { continue; }
+
+            for j in (i + 1)..n {
+                let sj = &strokes[j];
+                if sj.points.len() < 2 { continue; }
+
+                // Try all 4 endpoint pairings.
+                // (rev_i, rev_j) indicates whether to reverse each stroke before
+                // concatenating. The merge always produces: [rev(i)] ++ [rev(j)].
+                //
+                //  (false, false) = i.end   → j.start   (natural append)
+                //  (false, true)  = i.end   → j.end     (reverse j)
+                //  (true,  false) = i.start → j.start   (reverse i)
+                //  (true,  true)  = i.start → j.end     (reverse both)
+                for &(rev_i, rev_j) in &[(false, false), (false, true),
+                                         (true, false), (true, true)] {
+                    // After potential reversal, we connect end of i to start of j
+                    let end_pt = if rev_i {
+                        &si.points[0]
+                    } else {
+                        si.points.last().unwrap()
+                    };
+                    let start_pt = if rev_j {
+                        sj.points.last().unwrap()
+                    } else {
+                        &sj.points[0]
+                    };
+
+                    let dx = end_pt.x - start_pt.x;
+                    let dy = end_pt.y - start_pt.y;
+                    let dist_sq = dx * dx + dy * dy;
+                    if dist_sq > merge_dist_sq { continue; }
+
+                    // Compute tangent directions after potential reversal.
+                    // Reversing a stroke negates its tangent at the affected end.
+                    let tan_end = if rev_i {
+                        // Reversed i: original start is now end.
+                        // End tangent of reversed = -(start tangent of original)
+                        endpoint_tangent(&si.points, true).map(|(dx, dy)| (-dx, -dy))
+                    } else {
+                        endpoint_tangent(&si.points, false)
+                    };
+
+                    let tan_start = if rev_j {
+                        // Reversed j: original end is now start.
+                        // Start tangent of reversed = -(end tangent of original)
+                        endpoint_tangent(&sj.points, false).map(|(dx, dy)| (-dx, -dy))
+                    } else {
+                        endpoint_tangent(&sj.points, true)
+                    };
+
+                    // Check tangent compatibility
+                    let compatible = match (tan_end, tan_start) {
+                        (Some(t1), Some(t2)) => {
+                            // Dot product: 1.0 = identical direction, 0.0 = perpendicular
+                            let dot = t1.0 * t2.0 + t1.1 * t2.1;
+                            dot >= cos_angle_thresh
+                        }
+                        // If tangent can't be computed (very short stroke ≤1pt),
+                        // allow merge only if endpoints are extremely close (<1.5px)
+                        _ => dist_sq < 2.25,
+                    };
+
+                    if compatible {
+                        let dist = dist_sq.sqrt();
+                        let is_better = match &best {
+                            Some((d, _, _, _, _)) => dist < *d,
+                            None => true,
+                        };
+                        if is_better {
+                            best = Some((dist, i, j, rev_i, rev_j));
+                        }
+                    }
+                }
+            }
+        }
+
+        // If no merge candidate found, we're done
+        let (_, bi, bj, rev_i, rev_j) = match best {
+            Some(b) => b,
+            None => break,
+        };
+
+        // Perform the merge: remove higher index first to preserve lower index
+        let mut sj = strokes.remove(bj);
+        let mut si = strokes.remove(bi);
+
+        if rev_i { si.points.reverse(); }
+        if rev_j { sj.points.reverse(); }
+
+        // Concatenate: si ++ sj
+        si.points.extend(sj.points);
+        strokes.push(si);
+    }
+
+    strokes
 }

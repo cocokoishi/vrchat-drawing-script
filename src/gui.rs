@@ -74,7 +74,6 @@ impl eframe::App for VRChatDrawingApp {
         egui::SidePanel::left("control_panel").min_width(320.0).show(ctx, |ui| {
             ui.add_space(5.0);
             ui.heading(egui::RichText::new("VRChat Drawing Script").color(egui::Color32::from_rgb(120, 180, 255)));
-            ui.label(egui::RichText::new("Rust Rewrite").small().color(egui::Color32::from_rgb(150, 150, 170)));
             ui.separator();
 
             // 1. Image Selection

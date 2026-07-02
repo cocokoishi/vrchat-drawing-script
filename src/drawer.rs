@@ -201,10 +201,12 @@ fn move_relatively(
             move_cursor_relative(rel_dx, rel_dy);
             last_int_x += rel_dx;
             last_int_y += rel_dy;
-        }
 
-        if delay {
-            thread::sleep(Duration::from_micros((draw_delay_sec * 1_000_000.0) as u64));
+            // Only sleep when cursor actually moved; zero-movement steps
+            // (when float accumulator doesn't cross integer boundary) can be skipped
+            if delay {
+                thread::sleep(Duration::from_micros((draw_delay_sec * 1_000_000.0) as u64));
+            }
         }
     }
 
