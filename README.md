@@ -4,7 +4,7 @@
 
 # VRChat Drawing Script
 
-## 🦀 Part 1: Rust Version (New & Recommended)
+## 🦀 Part 1: Rust Version
 
 We have rewritten the core logic in **Rust** for better performance and easier deployment. You can now download the compiled executable directly from the **Releases** section.
 
@@ -15,39 +15,7 @@ We have rewritten the core logic in **Rust** for better performance and easier d
 
 ## 🐍 Part 2: Original Python Version (v7.2)
 
-We have retained the original Python source files for users who prefer the legacy drawing behavior or wish to modify the script manually.
-
-### Installation Guide
-
-1. **Install Python 3.11.**
-2. **Install the Interception driver:**
-* Navigate to the `Interception` folder in your terminal and run:
-```cmd
-install-interception.exe /install
-
-```
-
-
-* **Restart your computer** immediately after installation.
-* > ⚠️ **Warning:** This is a kernel-level driver. Using it may trigger bans in games with active anti-cheat.
-
-
-
-
-3. **Install Dependencies:**
-```cmd
-pip install opencv-python numpy Pillow scikit-image keyboard pywin32 interception-python
-
-```
-
-
-4. **Run as Administrator:**
-```cmd
-python v7.2.py
-
-```
-
-
+v7.2.py(interception driver required) or https://github.com/cocokoishi/vrchat-drawing-script-win32 (interception not required)
 
 ---
 
