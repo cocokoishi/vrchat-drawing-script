@@ -11,8 +11,6 @@ We have rewritten the core logic in **Rust** for better performance and easier d
 > [!IMPORTANT]
 > **Performance Note:** Due to the author having no formal computer science background and zero prior coding experience, the Rust implementation may currently show some **quality degradation** (such as pathing or dithering artifacts) compared to the original Python version.
 
-**We warmly welcome community contributions!** If you are a developer, please feel free to submit a Pull Request or optimize the drawing algorithms.
-
 ---
 
 ## 🐍 Part 2: Original Python Version (v7.2)
@@ -57,7 +55,7 @@ python v7.2.py
 
 * **Anti-Cheat Risk:** Both versions utilize the **Interception** driver. This system operates at the kernel level and is flagged as **high-risk** by many anti-cheat providers (including those used by VRChat).
 * **Account Safety:** Using this tool **may result in a permanent ban**. Please assess the risks yourself.
-* **No Liability:** The author ([Bilibili Profile](https://space.bilibili.com/5145514)) is a medical student, not a programmer. All code was generated via **Deepseek V3**. The author assumes **zero responsibility** for any hardware issues, software conflicts, or account bans resulting from this tool.
+* **No Liability:** The author ([Bilibili Profile](https://space.bilibili.com/5145514)) is not a programmer. All code was generated via **Deepseek V3**. The author assumes **zero responsibility** for any hardware issues, software conflicts, or account bans resulting from this tool.
 
 ---
 
