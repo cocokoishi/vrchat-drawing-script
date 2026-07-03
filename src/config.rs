@@ -2,8 +2,6 @@
 pub struct ImageConfig {
     pub grayscale: bool,
     pub blur_size: u32,
-    pub threshold_type: String,
-    pub threshold_value: u8,
 }
 
 impl Default for ImageConfig {
@@ -11,8 +9,6 @@ impl Default for ImageConfig {
         Self {
             grayscale: true,
             blur_size: 1,             // No blur by default (input is usually clean B&W art)
-            threshold_type: "binary".to_string(),  // Binary threshold, not otsu (more predictable)
-            threshold_value: 128,
         }
     }
 }

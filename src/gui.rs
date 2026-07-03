@@ -102,11 +102,7 @@ impl eframe::App for VRChatDrawingApp {
             ui.group(|ui| {
                 ui.label(egui::RichText::new("2. Image Processing").strong().color(egui::Color32::from_rgb(100, 200, 150)));
                 
-                ui.horizontal(|ui| {
-                    ui.label("Threshold (1-254):");
-                    ui.add(egui::Slider::new(&mut self.config.image.threshold_value, 1..=254));
-                });
-                
+
                 ui.horizontal(|ui| {
                     ui.label("Simplify Epsilon:");
                     ui.add(egui::Slider::new(&mut self.config.contour.epsilon_ratio, 0.1..=10.0));
