@@ -211,6 +211,7 @@ fn prune_skeleton(data: &mut [u8], w: usize, h: usize, min_len: usize) {
                                 if dx == 0 && dy == 0 { continue; }
                                 let ny = (curr / w) as i32 + dy;
                                 let nx = (curr % w) as i32 + dx;
+                                if ny < 0 || ny >= h as i32 || nx < 0 || nx >= w as i32 { continue; }
                                 let nix = (ny as usize) * w + (nx as usize);
                                 if data[nix] > 0 && nix != prev { next_neighbors.push(nix); }
                             }
@@ -278,20 +279,29 @@ fn extract_strokes(data: &[u8], w: usize, h: usize, cfg: &ContourConfig) -> Vec<
     // === Phase 2: Merge collinear strokes fragmented at skeleton junctions ===
     // merge_dist=3.0px: endpoints within 3 pixels are merge candidates
     // cos_angle_thresh=0.7 (~45°): tangent directions must be compatible to merge
-    let merged = merge_collinear_strokes(cleaned, 3.0, 0.7);
+    // Skip merging when there are too many strokes to avoid O(n^3) hang on
+    // complex photographic images (merged strokes would be unplayable anyway).
+    let max_merged_strokes = 2000;
+    let (simplified, _merged_count) = if cleaned.len() <= max_merged_strokes {
+        let merged = merge_collinear_strokes(cleaned, 3.0, 0.7);
+        let count = merged.len();
+        (merged, count)
+    } else {
+        (cleaned, 0)
+    };
 
     // === Phase 3: Interpolate with adaptive distance ===
-    let mut simplified = Vec::with_capacity(merged.len());
-    for stroke in merged {
+    let mut final_strokes = Vec::with_capacity(simplified.len());
+    for stroke in simplified {
         // Short strokes get finer 3px interpolation; longer ones use 5px for efficiency
         let max_dist = if stroke.points.len() > 20 { 5.0 } else { 3.0 };
         let interp = interpolate_stroke(&stroke.points, max_dist);
         if interp.len() > 1 {
-            simplified.push(DrawingStroke { points: interp });
+            final_strokes.push(DrawingStroke { points: interp });
         }
     }
 
-    reorder_strokes(simplified)
+    reorder_strokes(final_strokes)
 }
 
 fn trace_path(
@@ -420,11 +430,17 @@ fn rdp_simplify(points: &[DrawingPoint], epsilon: f64) -> Vec<DrawingPoint> {
     }
     let eps_sq = epsilon * epsilon;
 
-    fn rdp(pts: &[DrawingPoint], eps_sq: f64, result: &mut Vec<DrawingPoint>) {
+    fn rdp(pts: &[DrawingPoint], eps_sq: f64, result: &mut Vec<DrawingPoint>, depth: u32) {
         if pts.len() < 2 { return; }
         if pts.len() == 2 {
             result.push(pts[0].clone());
             result.push(pts[1].clone());
+            return;
+        }
+        const MAX_DEPTH: u32 = 48;
+        if depth > MAX_DEPTH {
+            result.push(pts[0].clone());
+            result.push(pts[pts.len() - 1].clone());
             return;
         }
         let end = pts.len() - 1;
@@ -448,9 +464,9 @@ fn rdp_simplify(points: &[DrawingPoint], epsilon: f64) -> Vec<DrawingPoint> {
 
         if dmax > eps_sq {
             let mut r1 = Vec::new();
-            rdp(&pts[..=index], eps_sq, &mut r1);
+            rdp(&pts[..=index], eps_sq, &mut r1, depth + 1);
             let mut r2 = Vec::new();
-            rdp(&pts[index..=end], eps_sq, &mut r2);
+            rdp(&pts[index..=end], eps_sq, &mut r2, depth + 1);
             r1.pop();
             result.extend(r1);
             result.extend(r2);
@@ -482,7 +498,7 @@ fn rdp_simplify(points: &[DrawingPoint], epsilon: f64) -> Vec<DrawingPoint> {
         return points.to_vec();
     }
     
-    rdp(points, eps_sq, &mut res);
+    rdp(points, eps_sq, &mut res, 0);
     res
 }
 
