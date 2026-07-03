@@ -73,7 +73,7 @@ impl eframe::App for VRChatDrawingApp {
         // Draw UI
         egui::SidePanel::left("control_panel").min_width(320.0).show(ctx, |ui| {
             ui.add_space(5.0);
-            ui.heading(egui::RichText::new("VRChat Drawing Script").color(egui::Color32::from_rgb(120, 180, 255)));
+            ui.heading(egui::RichText::new("VRChat Drawing Script update 2").color(egui::Color32::from_rgb(120, 180, 255)));
             ui.separator();
 
             // 1. Image Selection
@@ -197,7 +197,7 @@ impl eframe::App for VRChatDrawingApp {
                 });
 
             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-                ui.label(egui::RichText::new("space.bilibili.com/5145514").small().color(egui::Color32::from_rgb(130, 150, 180)));
+                ui.label(egui::RichText::new("github.com/cocokoishi/vrchat-drawing-script").small().color(egui::Color32::from_rgb(130, 150, 180)));
             });
         });
 
